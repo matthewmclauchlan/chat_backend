@@ -78,19 +78,18 @@ app.post('/api/createSupportConversation', async (req, res) => {
   }
 
   try {
-    console.log('🔍 Starting database connection...');
+    console.log('🔍 Starting conversation creation process...');
     const conversationsCollection = db.collection('conversations');
-    console.log('🔍 Connected to conversations collection');
-
+    
     const supportUserId = process.env.SUPPORT_USER_ID || '67d2eb99001ca2b957ce';
-    const conversationId = `${bookingId.replace(/\//g, '_')}-${userId}-${supportUserId}`;
+    const conversationId = `${bookingId.replace(/\//g, '_')}-${userId}-${supportUserId}-support`;
 
-    console.log(`🔍 Looking for existing conversation: ${conversationId}`);
+    console.log(`🔍 Looking up conversation ${conversationId}`);
     let conversation = await conversationsCollection.findOne({ _id: conversationId });
-    console.log('🔍 Existing conversation result:', conversation);
+    console.log(`🔍 Lookup completed in ${Date.now() - startTime} ms, result:`, conversation);
 
     if (!conversation) {
-      console.log('🔍 No existing conversation found, creating new one...');
+      console.log('🔍 No conversation found, inserting new one...');
       conversation = {
         _id: conversationId,
         participants: [userId, supportUserId],
@@ -104,6 +103,7 @@ app.post('/api/createSupportConversation', async (req, res) => {
     } else {
       console.log('ℹ️ Conversation already exists');
     }
+
     console.log(`✅ Request processed in ${Date.now() - startTime} ms`);
     return res.json({ conversationId });
   } catch (error) {
@@ -112,6 +112,7 @@ app.post('/api/createSupportConversation', async (req, res) => {
     return res.status(500).json({ error: errorMessage });
   }
 });
+
 
 
 // Fetch Conversation and Booking Details Together
