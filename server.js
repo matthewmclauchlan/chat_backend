@@ -68,18 +68,29 @@ app.get('/api/bookings/:bookingId', async (req, res) => {
 
 // Support Conversation API
 app.post('/api/createSupportConversation', async (req, res) => {
+  const startTime = Date.now();
+  console.log('✅ Received createSupportConversation request:', req.body);
+
   const { bookingId, userId } = req.body;
   if (!bookingId || !userId) {
-    console.log('❌ Missing bookingId or userId:', { bookingId, userId });
+    console.log('❌ Missing parameters:', { bookingId, userId });
     return res.status(400).json({ error: 'bookingId and userId are required' });
   }
+
   try {
-    console.log('✅ Creating support conversation for booking:', bookingId);
+    console.log('🔍 Starting database connection...');
     const conversationsCollection = db.collection('conversations');
+    console.log('🔍 Connected to conversations collection');
+
     const supportUserId = process.env.SUPPORT_USER_ID || '67d2eb99001ca2b957ce';
-    const conversationId = `${bookingId}-${userId}-${supportUserId}-support`;
+    const conversationId = `${bookingId.replace(/\//g, '_')}-${userId}-${supportUserId}`;
+
+    console.log(`🔍 Looking for existing conversation: ${conversationId}`);
     let conversation = await conversationsCollection.findOne({ _id: conversationId });
+    console.log('🔍 Existing conversation result:', conversation);
+
     if (!conversation) {
+      console.log('🔍 No existing conversation found, creating new one...');
       conversation = {
         _id: conversationId,
         participants: [userId, supportUserId],
@@ -89,14 +100,19 @@ app.post('/api/createSupportConversation', async (req, res) => {
         updatedAt: new Date().toISOString(),
       };
       await conversationsCollection.insertOne(conversation);
+      console.log('✅ New conversation created:', conversation);
+    } else {
+      console.log('ℹ️ Conversation already exists');
     }
-    console.log('✅ Created support conversation:', conversation);
-    res.json({ conversationId });
+    console.log(`✅ Request processed in ${Date.now() - startTime} ms`);
+    return res.json({ conversationId });
   } catch (error) {
-    console.error('❌ Error creating support conversation:', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.error('❌ Error in createSupportConversation:', errorMessage);
+    return res.status(500).json({ error: errorMessage });
   }
 });
+
 
 // Fetch Conversation and Booking Details Together
 app.get('/api/bookings/:conversationId', async (req, res) => {
