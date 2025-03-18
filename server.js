@@ -116,6 +116,60 @@ app.get('/api/bookings/:conversationId', async (req, res) => {
   }
 });
 
+// ***** NEW: Update Conversation Status Endpoint *****
+app.post('/api/conversation/:conversationId/updateStatus', async (req, res) => {
+  const { conversationId } = req.params;
+  const { status, openedBy, senderAvatarUrl } = req.body;
+
+  if (!conversationId) {
+    return res.status(400).json({ error: 'Missing conversationId' });
+  }
+  if (!status) {
+    return res.status(400).json({ error: 'Missing status' });
+  }
+
+  try {
+    const conversationsCollection = db.collection('conversations');
+
+    const updateData = {
+      status,
+      updatedAt: new Date().toISOString(),
+    };
+    if (status === "in-progress" && openedBy) {
+      updateData.openedBy = openedBy;
+    }
+
+    // Prepare update operations
+    const updateOps = { $set: updateData };
+
+    // If conversation is resolved, add a system message including the support user's avatar.
+    if (status === "resolved") {
+      const systemMessage = {
+        messageId: new ObjectId().toHexString(),
+        senderId: openedBy, // the support user's ID
+        content: "This conversation has been closed.",
+        timestamp: new Date().toISOString(),
+        read: false,
+        status: "sent",
+        senderAvatarUrl: senderAvatarUrl || "",
+      };
+      updateOps.$push = { messages: systemMessage };
+    }
+
+    await conversationsCollection.updateOne(
+      { _id: conversationId },
+      updateOps
+    );
+
+    return res.json({ message: 'Conversation status updated' });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.error("Error updating conversation status:", errorMessage);
+    return res.status(500).json({ error: errorMessage });
+  }
+});
+// ***** End Update Conversation Status Endpoint *****
+
 // Socket.IO Setup
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*', methods: ['GET', 'POST'] } });
@@ -185,44 +239,34 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Add this endpoint in your server.js after your Socket.IO setup, before server.listen
-
-app.post('/api/sendSystemMessage', async (req, res) => {
-  try {
-    // Extract conversationId and content from the request body.
-    const { conversationId, content } = req.body;
-    if (!conversationId || !content) {
-      return res.status(400).json({ error: "Missing conversationId or content" });
+  // Send system message endpoint is defined within the socket.io connection block:
+  app.post('/api/sendSystemMessage', async (req, res) => {
+    try {
+      const { conversationId, content } = req.body;
+      if (!conversationId || !content) {
+        return res.status(400).json({ error: "Missing conversationId or content" });
+      }
+      const systemMessage = {
+        messageId: new ObjectId().toHexString(),
+        senderId: "system",
+        content,
+        timestamp: new Date().toISOString(),
+        read: false,
+        status: "sent",
+        system: true
+      };
+      const conversationsCollection = db.collection('conversations');
+      await conversationsCollection.updateOne(
+        { _id: conversationId },
+        { $push: { messages: systemMessage }, $set: { updatedAt: new Date().toISOString() } }
+      );
+      io.to(conversationId).emit("receiveMessage", systemMessage);
+      return res.json({ success: true, message: systemMessage });
+    } catch (err) {
+      console.error("Error in /api/sendSystemMessage:", err);
+      return res.status(500).json({ success: false, error: err.message });
     }
-
-    // Create a system message object.
-    const systemMessage = {
-      messageId: new ObjectId().toHexString(),
-      senderId: "system",  // Use "system" (or a reserved ID) for system messages.
-      content,
-      timestamp: new Date().toISOString(),
-      read: false,
-      status: "sent",
-      system: true  // Custom flag to indicate this is a system message.
-    };
-
-    // Update the conversation document in MongoDB.
-    const conversationsCollection = db.collection('conversations');
-    await conversationsCollection.updateOne(
-      { _id: conversationId },
-      { $push: { messages: systemMessage }, $set: { updatedAt: new Date().toISOString() } }
-    );
-
-    // Emit the system message via Socket.IO to all clients in the conversation.
-    io.to(conversationId).emit("receiveMessage", systemMessage);
-
-    return res.json({ success: true, message: systemMessage });
-  } catch (err) {
-    console.error("Error in /api/sendSystemMessage:", err);
-    return res.status(500).json({ success: false, error: err.message });
-  }
-});
-
+  });
 });
 
 const PORT = process.env.PORT || 4000;

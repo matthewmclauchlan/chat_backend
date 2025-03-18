@@ -8,7 +8,7 @@ const uri = process.env.MONGODB_URI;
 const dbName = process.env.MONGO_DB_NAME || 'spanish_holiday_rentals';
 
 if (!uri) {
-  console.error('❌ MONGO_URI is not defined in the environment');
+  console.error('❌ MONGODB_URI is not defined in the environment');
   process.exit(1);
 }
 
