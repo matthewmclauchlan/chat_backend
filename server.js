@@ -131,6 +131,27 @@ io.on('connection', (socket) => {
   });
 });
 
+// Get Conversation by ID Endpoint
+app.get('/api/conversation/:conversationId', async (req, res) => {
+  const { conversationId } = req.params;
+  if (!conversationId) {
+    return res.status(400).json({ error: 'Missing conversationId' });
+  }
+  try {
+    const db = await connectDB();
+    const conversationsCollection = db.collection('conversations');
+    const conversation = await conversationsCollection.findOne({ _id: conversationId });
+    if (!conversation) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+    return res.json(conversation);
+  } catch (error) {
+    console.error('Error fetching conversation:', error);
+    return res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
+
 // Start the server on the assigned PORT
 const PORT = process.env.PORT || 4000;
 server.listen(PORT, () => {
