@@ -16,7 +16,9 @@ if (!uri) {
   console.error('❌ MONGODB_URI is not defined');
   process.exit(1);
 }
-const client = new MongoClient(uri);
+const client = new MongoClient(uri, {
+  // Optionally set connection pool options here
+});
 let db;
 
 async function connectDB() {
@@ -30,6 +32,7 @@ async function connectDB() {
 
 // Create/Join Conversation Endpoint
 app.post('/api/conversations', async (req, res) => {
+  const startTime = Date.now();
   const { bookingId, userId, initiatedBy = 'guest' } = req.body;
   if (!userId) {
     return res.status(400).json({ error: 'userId is required' });
@@ -38,7 +41,6 @@ app.post('/api/conversations', async (req, res) => {
     const db = await connectDB();
     const conversationsCollection = db.collection('conversations');
     const supportUserId = process.env.SUPPORT_USER_ID || 'defaultSupport';
-    // Build a conversationId (simplified)
     let conversationId;
     if (initiatedBy === 'guest' && bookingId) {
       const normalizedBookingId = bookingId.replace(/\//g, '_');
@@ -46,7 +48,6 @@ app.post('/api/conversations', async (req, res) => {
     } else {
       conversationId = `conversation-${userId}-${supportUserId}`;
     }
-    // Check if conversation exists
     let conversation = await conversationsCollection.findOne({ _id: conversationId });
     if (!conversation) {
       conversation = {
@@ -57,7 +58,11 @@ app.post('/api/conversations', async (req, res) => {
         updatedAt: new Date().toISOString(),
       };
       await conversationsCollection.insertOne(conversation);
+      console.log('✅ New conversation created:', conversation);
+    } else {
+      console.log('ℹ️ Conversation already exists:', conversationId);
     }
+    console.log(`Processed createSupportConversation in ${Date.now() - startTime} ms`);
     return res.json({ conversationId });
   } catch (error) {
     console.error('Error creating conversation:', error);
@@ -67,6 +72,7 @@ app.post('/api/conversations', async (req, res) => {
 
 // Get Conversations for a User
 app.get('/api/conversations', async (req, res) => {
+  const startTime = Date.now();
   const { userId } = req.query;
   if (!userId) {
     return res.status(400).json({ error: 'Missing userId query parameter' });
@@ -74,7 +80,11 @@ app.get('/api/conversations', async (req, res) => {
   try {
     const db = await connectDB();
     const conversationsCollection = db.collection('conversations');
-    const conversations = await conversationsCollection.find({ participants: userId }).toArray();
+    // Use projection to limit data returned (adjust fields as needed)
+    const conversations = await conversationsCollection
+      .find({ participants: userId }, { projection: { _id: 1, participants: 1, messages: 1 } })
+      .toArray();
+    console.log(`Fetched ${conversations.length} conversation(s) for user ${userId} in ${Date.now() - startTime} ms`);
     return res.json({ conversations });
   } catch (error) {
     console.error('Error fetching conversations:', error);
