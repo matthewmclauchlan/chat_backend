@@ -174,6 +174,44 @@ app.get('/api/conversation/:conversationId', async (req, res) => {
   }
 });
 
+// Send System Message Endpoint
+app.post('/api/sendSystemMessage', async (req, res) => {
+  const { conversationId, content } = req.body;
+  if (!conversationId || !content) {
+    return res.status(400).json({ error: "Missing conversationId or content" });
+  }
+  try {
+    const db = await connectDB();
+    const conversationsCollection = db.collection('conversations');
+    // Create a system message object.
+    const systemMessage = {
+      messageId: new ObjectId().toHexString(),
+      senderId: "system",  // Indicates a system message.
+      content,             // This should include moderationComments if desired.
+      timestamp: new Date().toISOString(),
+      read: false,
+      status: "sent",
+      system: true         // A flag to denote that this is a system message.
+    };
+    // Push the system message into the messages array of the conversation.
+    const result = await conversationsCollection.updateOne(
+      { _id: conversationId },
+      { $push: { messages: systemMessage }, $set: { updatedAt: new Date().toISOString() } }
+    );
+    if (result.modifiedCount === 1) {
+      // Emit the message to any connected clients in that conversation room.
+      io.to(conversationId).emit("receiveMessage", systemMessage);
+      return res.json({ success: true, message: systemMessage });
+    } else {
+      return res.status(404).json({ error: "Conversation not found or message not added" });
+    }
+  } catch (error) {
+    console.error("Error in /api/sendSystemMessage:", error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+
 // Start the server on the assigned PORT
 const PORT = process.env.PORT || 4000;
 server.listen(PORT, () => {
