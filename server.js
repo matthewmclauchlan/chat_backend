@@ -33,26 +33,33 @@ async function connectDB() {
 // Create/Join Conversation Endpoint
 app.post('/api/conversations', async (req, res) => {
   const startTime = Date.now();
-  const { bookingId, userId, initiatedBy = 'guest' } = req.body;
+  // Accept supportAgentId optionally for support-initiated conversations
+  const { bookingId, userId, initiatedBy = 'guest', supportAgentId } = req.body;
   if (!userId) {
     return res.status(400).json({ error: 'userId is required' });
   }
   try {
     const db = await connectDB();
     const conversationsCollection = db.collection('conversations');
-    const supportUserId = process.env.SUPPORT_USER_ID || 'defaultSupport';
+    // Determine supportId: if initiated by support and supportAgentId is provided, use it; otherwise, fallback.
+    const supportId =
+      initiatedBy === 'support' && supportAgentId
+        ? supportAgentId
+        : process.env.SUPPORT_USER_ID || 'defaultSupport';
+
     let conversationId;
     if (initiatedBy === 'guest' && bookingId) {
       const normalizedBookingId = bookingId.replace(/\//g, '_');
-      conversationId = `${normalizedBookingId}-${userId}-${supportUserId}`;
+      conversationId = `${normalizedBookingId}-${userId}-${supportId}`;
     } else {
-      conversationId = `conversation-${userId}-${supportUserId}`;
+      conversationId = `conversation-${userId}-${supportId}`;
     }
+
     let conversation = await conversationsCollection.findOne({ _id: conversationId });
     if (!conversation) {
       conversation = {
         _id: conversationId,
-        participants: [userId, supportUserId],
+        participants: [userId, supportId],
         messages: [],
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -129,6 +136,22 @@ io.on('connection', (socket) => {
       callback({ success: false });
     }
   });
+
+  socket.on('markAsRead', async ({ conversationId, messageId }) => {
+    console.log(`Received markAsRead for conversation ${conversationId}, message ${messageId}`);
+    try {
+      const db = await connectDB();
+      const conversationsCollection = db.collection('conversations');
+      const result = await conversationsCollection.updateOne(
+        { _id: conversationId, 'messages.messageId': messageId },
+        { $set: { 'messages.$.read': true, updatedAt: new Date().toISOString() } }
+      );
+      console.log('Update result:', result);
+      io.to(conversationId).emit('messageRead', { messageId });
+    } catch (error) {
+      console.error('Error marking message as read:', error);
+    }
+  });
 });
 
 // Get Conversation by ID Endpoint
@@ -150,7 +173,6 @@ app.get('/api/conversation/:conversationId', async (req, res) => {
     return res.status(500).json({ error: 'Internal Server Error' });
   }
 });
-
 
 // Start the server on the assigned PORT
 const PORT = process.env.PORT || 4000;
